@@ -1,7 +1,4 @@
---// Seeker Hub v12 | Built for LO by ENI
---// Three Windows: "Aimbot" (flat) + "Player" (flat) + "XerHub" (ESP folder + Hiders folder)
---// Chams + Skeleton + Name ESP only | Fixed ESP | Hiders-ONLY aimbot (no seekers) | Modern raycast wallcheck | Fixed target switching | Float 50
---// Date: 2026-06-21
+
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
