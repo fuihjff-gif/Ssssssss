@@ -1,0 +1,173 @@
+local library = loadstring(game:HttpGet("https://raw.githubusercontent.com/liebertsx/Tora-Library/main/src/librarynew",true))()
+
+local tab = library:CreateWindow("xerhub")
+
+local SelectedRarity = "god"
+local AutoFarm = false
+local AutoTapHealth = false
+local AutoRebirth = false
+
+local remotes = game:GetService("ReplicatedStorage"):WaitForChild("Remotes")
+
+-- Rarity Dropdown
+tab:AddList({
+    text = "Target Rarity",
+    values = {"common", "uncommon", "rare", "epic", "legendary", "mythic", "god", "secret", "og", "ancient", "celestial", "void", "radiant"},
+    callback = function(value)
+        SelectedRarity = value:lower()
+    end,
+    open = false,
+    flag = "rarity_dropdown"
+})
+
+-- Auto Farm Brainrot Toggle
+tab:AddToggle({
+    text = "Auto Farm Brainrot",
+    flag = "auto_farm_toggle",
+    callback = function(state)
+        AutoFarm = state
+        
+        if state then
+            task.spawn(function()
+                while AutoFarm do
+                    local success, err = pcall(function()
+                        local player = game:GetService("Players").LocalPlayer
+                        local character = player.Character
+                        if not character then return end
+                        
+                        local hrp = character:WaitForChild("HumanoidRootPart", 2)
+                        if not hrp then return end
+                        
+                        local spawned = workspace:FindFirstChild("SpawnedBrainrots")
+                        if not spawned then return end
+                        
+                        local map = workspace:FindFirstChild("Map")
+                        local collectionPart = map and map:FindFirstChild("BrainrotCollectionPart")
+                        
+                        for _, brainrot in ipairs(spawned:GetChildren()) do
+                            if not AutoFarm then break end
+                            
+                            local rarityText = nil
+                            
+                            local overhead = brainrot:FindFirstChild("Overhead")
+                            if overhead then
+                                local attachment = overhead:FindFirstChild("Attachment")
+                                if attachment then
+                                    local billboard = attachment:FindFirstChild("UnitsBillboard")
+                                    if billboard then
+                                        local rarityLabel = billboard:FindFirstChild("Rarity")
+                                        if rarityLabel and rarityLabel:IsA("TextLabel") then
+                                            rarityText = rarityLabel.Text
+                                        end
+                                    end
+                                end
+                            end
+                            
+                            if not rarityText then
+                                for _, desc in ipairs(brainrot:GetDescendants()) do
+                                    if desc:IsA("TextLabel") and desc.Name == "Rarity" then
+                                        rarityText = desc.Text
+                                        break
+                                    end
+                                end
+                            end
+                            
+                            if not rarityText then continue end
+                            
+                            if rarityText:lower():find(SelectedRarity) then
+                                local hitbox = brainrot:FindFirstChild("PickupHitbox")
+                                if not hitbox then continue end
+                                
+                                local prompt = hitbox:FindFirstChild("ProximityPrompt")
+                                if not prompt then continue end
+                                
+                                hrp.CFrame = hitbox.CFrame * CFrame.new(0, 3, 0)
+                                task.wait(0.3)
+                                
+                                if fireproximityprompt then
+                                    fireproximityprompt(prompt)
+                                else
+                                    local oldHold = prompt.HoldDuration
+                                    prompt.HoldDuration = 0
+                                    prompt:InputHoldBegin()
+                                    task.wait(0.05)
+                                    prompt:InputHoldEnd()
+                                    prompt.HoldDuration = oldHold
+                                end
+                                
+                                task.wait(0.3)
+                                
+                                if collectionPart then
+                                    hrp.CFrame = collectionPart.CFrame * CFrame.new(0, 3, 0)
+                                    task.wait(0.3)
+                                end
+                                
+                                task.wait(0.5)
+                                break
+                            end
+                        end
+                    end)
+                    
+                    if not success then
+                        warn("Auto Farm Error: " .. tostring(err))
+                    end
+                    
+                    task.wait(0.5)
+                end
+            end)
+        end
+    end
+})
+
+-- Auto Tap Health Toggle
+tab:AddToggle({
+    text = "Auto Tap Health",
+    flag = "auto_tap_health",
+    callback = function(state)
+        AutoTapHealth = state
+        
+        if state then
+            task.spawn(function()
+                while AutoTapHealth do
+                    pcall(function()
+                        remotes:WaitForChild("TapHealth"):FireServer()
+                    end)
+                    task.wait(0.1)
+                end
+            end)
+        end
+    end
+})
+
+-- Auto Rebirth Toggle
+tab:AddToggle({
+    text = "Auto Rebirth",
+    flag = "auto_rebirth",
+    callback = function(state)
+        AutoRebirth = state
+        
+        if state then
+            task.spawn(function()
+                while AutoRebirth do
+                    pcall(function()
+                        remotes:WaitForChild("RequestRebirth"):FireServer()
+                    end)
+                    task.wait(2)
+                end
+            end)
+        end
+    end
+})
+
+-- Place Best Brainrots Button
+tab:AddButton({
+    text = "Place Best Brainrots",
+    flag = "place_best",
+    callback = function()
+        pcall(function()
+            remotes:WaitForChild("PlaceBest"):FireServer()
+        end)
+    end
+})
+
+library:Init()
