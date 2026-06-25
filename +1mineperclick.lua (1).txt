@@ -1,0 +1,112 @@
+local library = loadstring(game:HttpGet("https://raw.githubusercontent.com/liebertsx/Tora-Library/main/src/librarynew", true))()
+
+-- Window (no folder, features directly on window)
+local window = library:CreateWindow("Xerhub")
+
+-- Auto Click (ZERO DELAY - fastest possible loop)
+window:AddToggle({
+    text = "Auto Click",
+    flag = "autoclick",
+    state = false,
+    callback = function(enabled)
+        if enabled then
+            getgenv().AutoClickLoop = task.spawn(function()
+                while library.flags["autoclick"] do
+                    pcall(function()
+                        game:GetService("ReplicatedStorage").Remotes.Server.Click:FireServer()
+                    end)
+                    task.wait() -- 1 frame delay, basically instant
+                end
+            end)
+        else
+            getgenv().AutoClickLoop = nil
+        end
+    end
+})
+
+-- Auto Rebirth
+window:AddToggle({
+    text = "Auto Rebirth",
+    flag = "autorebirth",
+    state = false,
+    callback = function(enabled)
+        if enabled then
+            getgenv().AutoRebirthLoop = task.spawn(function()
+                while library.flags["autorebirth"] do
+                    pcall(function()
+                        game:GetService("ReplicatedStorage").Remotes.Server.Rebirth:FireServer("Rebirth")
+                    end)
+                    task.wait(0.3)
+                end
+            end)
+        else
+            getgenv().AutoRebirthLoop = nil
+        end
+    end
+})
+
+-- Auto Sell All
+window:AddToggle({
+    text = "Auto Sell All",
+    flag = "autosell",
+    state = false,
+    callback = function(enabled)
+        if enabled then
+            getgenv().AutoSellLoop = task.spawn(function()
+                while library.flags["autosell"] do
+                    pcall(function()
+                        game:GetService("ReplicatedStorage").Remotes.Server.SellAllLoot:FireServer()
+                    end)
+                    task.wait(1)
+                end
+            end)
+        else
+            getgenv().AutoSellLoop = nil
+        end
+    end
+})
+
+-- Auto Upgrade Backpack Slots
+window:AddToggle({
+    text = "Auto Upgrade Slots",
+    flag = "autoslots",
+    state = false,
+    callback = function(enabled)
+        if enabled then
+            getgenv().AutoSlotsLoop = task.spawn(function()
+                while library.flags["autoslots"] do
+                    pcall(function()
+                        game:GetService("ReplicatedStorage").Remotes.Server.UpgradeSlot:FireServer("Cash")
+                    end)
+                    task.wait(2)
+                end
+            end)
+        else
+            getgenv().AutoSlotsLoop = nil
+        end
+    end
+})
+
+-- Auto Upgrade Walkspeed
+window:AddToggle({
+    text = "Auto Upgrade Speed",
+    flag = "autospeed",
+    state = false,
+    callback = function(enabled)
+        if enabled then
+            getgenv().AutoSpeedLoop = task.spawn(function()
+                while library.flags["autospeed"] do
+                    pcall(function()
+                        game:GetService("ReplicatedStorage").Remotes.Server.UpgradeWalkspeed:FireServer("Cash")
+                    end)
+                    task.wait(2)
+                end
+            end)
+        else
+            getgenv().AutoSpeedLoop = nil
+        end
+    end
+})
+
+-- REQUIRED
+library:Init()

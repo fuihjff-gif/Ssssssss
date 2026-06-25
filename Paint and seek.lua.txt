@@ -1,0 +1,448 @@
+local library = loadstring(game:HttpGet("https://raw.githubusercontent.com/liebertsx/Tora-Library/main/src/librarynew",true))()
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local VirtualUser = game:GetService("VirtualUser")
+local LocalPlayer = Players.LocalPlayer
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+
+--// UI
+local win = library:CreateWindow("XerHub")
+
+--// ESP Name + Distance Toggle
+local espEnabled = false
+local espBillboards = {}
+
+local function getStatus(char)
+    if not char then return "Unknown" end
+    if char:FindFirstChild("BackKnifeModel") then
+        return "Lobby"
+    elseif char:FindFirstChild("SeekerKnife") then
+        return "Seeker"
+    else
+        return "Hider"
+    end
+end
+
+local function removeESP(player)
+    if espBillboards[player] then
+        pcall(function() espBillboards[player]:Destroy() end)
+        espBillboards[player] = nil
+    end
+end
+
+local function createESP(player)
+    if player == LocalPlayer then return end
+    removeESP(player)
+
+    local char = player.Character
+    if not char then return end
+
+    local head = char:FindFirstChild("Head")
+    if not head then
+        head = char:WaitForChild("Head", 2)
+    end
+    if not head then return end
+
+    local bb
+    local ok = pcall(function()
+        bb = Instance.new("BillboardGui")
+        bb.Name = "XerESP"
+        bb.Adornee = head
+        bb.Size = UDim2.new(0, 200, 0, 50)
+        bb.StudsOffset = Vector3.new(0, 2.5, 0)
+        bb.AlwaysOnTop = true
+        bb.MaxDistance = 9999
+
+        local label = Instance.new("TextLabel")
+        label.Name = "ESPLabel"
+        label.Size = UDim2.new(1, 0, 1, 0)
+        label.BackgroundTransparency = 1
+        label.TextStrokeTransparency = 0
+        label.TextStrokeColor3 = Color3.new(0, 0, 0)
+        label.Font = Enum.Font.GothamBold
+        label.TextSize = 14
+        label.Parent = bb
+
+        bb.Parent = head
+    end)
+
+    if ok and bb then
+        espBillboards[player] = bb
+    end
+end
+
+win:AddToggle({
+    text = "Esp",
+    flag = "show_names",
+    callback = function(v)
+        espEnabled = v
+        if not v then
+            for player, bb in pairs(espBillboards) do
+                pcall(function() bb:Destroy() end)
+            end
+            espBillboards = {}
+        else
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player ~= LocalPlayer then
+                    createESP(player)
+                end
+            end
+        end
+    end
+})
+
+--// Float Up Toggle
+local floatEnabled = false
+local floatConnection = nil
+local floatBodyVelocity = nil
+
+win:AddToggle({
+    text = "Float Up",
+    flag = "float_up",
+    callback = function(v)
+        floatEnabled = v
+        if not v then
+            if floatConnection then
+                floatConnection:Disconnect()
+                floatConnection = nil
+            end
+            if floatBodyVelocity then
+                pcall(function() floatBodyVelocity:Destroy() end)
+                floatBodyVelocity = nil
+            end
+            local char = LocalPlayer.Character
+            if char and char:FindFirstChild("HumanoidRootPart") then
+                char.HumanoidRootPart.Anchored = false
+            end
+        end
+    end
+})
+
+--// Auto Collect Coins
+local autoCoins = false
+
+win:AddToggle({
+    text = "Auto Coins",
+    flag = "auto_coins",
+    callback = function(v)
+        autoCoins = v
+    end
+})
+
+--// Auto Kill Hiders
+local autoKill = false
+
+win:AddToggle({
+    text = "Auto Kill",
+    flag = "auto_kill",
+    callback = function(v)
+        autoKill = v
+    end
+})
+
+--// Handle new players
+Players.PlayerAdded:Connect(function(player)
+    task.wait(0.5)
+    if espEnabled and player ~= LocalPlayer then
+        createESP(player)
+    end
+end)
+
+--// Handle players leaving
+Players.PlayerRemoving:Connect(function(player)
+    removeESP(player)
+end)
+
+--// Handle character changes for ALL players
+for _, player in ipairs(Players:GetPlayers()) do
+    if player ~= LocalPlayer then
+        player.CharacterAdded:Connect(function()
+            task.wait(0.3)
+            if espEnabled then
+                removeESP(player)
+                createESP(player)
+            end
+        end)
+        player.CharacterRemoving:Connect(function()
+            removeESP(player)
+        end)
+    end
+end
+
+Players.PlayerAdded:Connect(function(player)
+    if player ~= LocalPlayer then
+        player.CharacterAdded:Connect(function()
+            task.wait(0.3)
+            if espEnabled then
+                removeESP(player)
+                createESP(player)
+            end
+        end)
+        player.CharacterRemoving:Connect(function()
+            removeESP(player)
+        end)
+    end
+end)
+
+--// SINGLE UPDATE LOOP
+task.spawn(function()
+    while true do
+        if espEnabled then
+            local myChar = LocalPlayer.Character
+            local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
+
+            for player, bb in pairs(espBillboards) do
+                if not bb or not bb.Parent then
+                    removeESP(player)
+                    continue
+                end
+
+                local label = bb:FindFirstChild("ESPLabel")
+                if not label then
+                    removeESP(player)
+                    continue
+                end
+
+                local char = player.Character
+                local status = getStatus(char)
+                local distance = 0
+
+                if myHRP and char and char:FindFirstChild("HumanoidRootPart") then
+                    distance = math.floor((myHRP.Position - char.HumanoidRootPart.Position).Magnitude)
+                end
+
+                local color = Color3.fromRGB(255, 255, 255)
+                if status == "Seeker" then
+                    color = Color3.fromRGB(255, 50, 50)
+                elseif status == "Hider" then
+                    color = Color3.fromRGB(50, 255, 50)
+                elseif status == "Lobby" then
+                    color = Color3.fromRGB(255, 255, 50)
+                end
+
+                pcall(function()
+                    label.Text = player.Name .. " [" .. status .. "] [" .. tostring(distance) .. " studs]"
+                    label.TextColor3 = color
+                end)
+            end
+        end
+        task.wait(0.1)
+    end
+end)
+
+--// Float Up System
+local floatActive = false
+task.spawn(function()
+    while true do
+        if floatEnabled and not floatActive then
+            floatActive = true
+            local char = LocalPlayer.Character
+            if char and char:FindFirstChild("HumanoidRootPart") then
+                local hrp = char.HumanoidRootPart
+                hrp.CFrame = hrp.CFrame + Vector3.new(0, 50, 0)
+
+                if floatBodyVelocity then
+                    pcall(function() floatBodyVelocity:Destroy() end)
+                end
+
+                floatBodyVelocity = Instance.new("BodyVelocity")
+                floatBodyVelocity.Velocity = Vector3.new(0, 0, 0)
+                floatBodyVelocity.MaxForce = Vector3.new(0, math.huge, 0)
+                floatBodyVelocity.P = math.huge
+                floatBodyVelocity.Parent = hrp
+
+                floatConnection = RunService.Heartbeat:Connect(function()
+                    if floatEnabled and hrp and hrp.Parent then
+                        hrp.Velocity = Vector3.new(0, 0, 0)
+                    end
+                end)
+            end
+        elseif not floatEnabled and floatActive then
+            floatActive = false
+            if floatConnection then
+                floatConnection:Disconnect()
+                floatConnection = nil
+            end
+            if floatBodyVelocity then
+                pcall(function() floatBodyVelocity:Destroy() end)
+                floatBodyVelocity = nil
+            end
+        end
+        task.wait(0.1)
+    end
+end)
+
+--// Find attack remote
+local attackRemote = nil
+task.spawn(function()
+    task.wait(2)
+    for _, remote in pairs(ReplicatedStorage:GetDescendants()) do
+        if remote:IsA("RemoteEvent") and (remote.Name:lower():find("attack") or remote.Name:lower():find("hit") or remote.Name:lower():find("damage") or remote.Name:lower():find("knife") or remote.Name:lower():find("swing")) then
+            attackRemote = remote
+            break
+        end
+    end
+end)
+
+--// Auto Kill Hiders Loop
+local killLoopRunning = false
+task.spawn(function()
+    while true do
+        if autoKill and not killLoopRunning then
+            killLoopRunning = true
+            local myChar = LocalPlayer.Character
+            if myChar and myChar:FindFirstChild("HumanoidRootPart") then
+                local hrp = myChar.HumanoidRootPart
+                local seekerKnife = myChar:FindFirstChild("SeekerKnife")
+
+                for _, player in ipairs(Players:GetPlayers()) do
+                    if not autoKill then break end
+                    if player == LocalPlayer then continue end
+
+                    local isHider = false
+                    pcall(function()
+                        if player.Character then
+                            if getStatus(player.Character) == "Hider" then
+                                isHider = true
+                            end
+                        end
+                    end)
+
+                    if isHider then
+                        local char = player.Character
+                        if char and char:FindFirstChild("HumanoidRootPart") then
+                            local targetHrp = char.HumanoidRootPart
+
+                            local circleSteps = 6
+                            local circleRadius = 2.5
+                            local startTime = tick()
+                            local maxTime = 2
+
+                            for step = 1, circleSteps do
+                                if not autoKill then break end
+                                if tick() - startTime > maxTime then break end
+
+                                local angle = (step / circleSteps) * math.pi * 2
+                                local offsetX = math.cos(angle) * circleRadius
+                                local offsetZ = math.sin(angle) * circleRadius
+                                local targetPos = targetHrp.Position + Vector3.new(offsetX, 0, offsetZ)
+                                local lookAt = targetHrp.Position
+
+                                local tween = TweenService:Create(hrp, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                                    CFrame = CFrame.new(targetPos, lookAt)
+                                })
+                                tween:Play()
+                                tween.Completed:Wait()
+
+                                for i = 1, 15 do
+                                    if not autoKill then break end
+                                    if tick() - startTime > maxTime then break end
+
+                                    pcall(function()
+                                        VirtualUser:CaptureController()
+                                        VirtualUser:Button1Down(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+                                    end)
+                                    task.wait(0.01)
+                                    pcall(function()
+                                        VirtualUser:Button1Up(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+                                    end)
+                                    task.wait(0.01)
+                                end
+
+                                if seekerKnife and seekerKnife:IsA("Tool") then
+                                    pcall(function()
+                                        seekerKnife:Activate()
+                                    end)
+                                end
+
+                                if attackRemote then
+                                    pcall(function()
+                                        attackRemote:FireServer(targetHrp.Position, player)
+                                    end)
+                                end
+                            end
+
+                            task.wait(0.2)
+                        end
+                    end
+                end
+            end
+            killLoopRunning = false
+        end
+        task.wait(0.1)
+    end
+end)
+
+--// Auto Collect Coins
+task.spawn(function()
+    while true do
+        if autoCoins then
+            local char = LocalPlayer.Character
+            if char and char:FindFirstChild("HumanoidRootPart") then
+                local hrp = char.HumanoidRootPart
+
+                local spawnedCoins = workspace:FindFirstChild("SpawnedCoins")
+                if spawnedCoins then
+                    for _, coin in ipairs(spawnedCoins:GetChildren()) do
+                        if not autoCoins then break end
+
+                        if coin:IsA("BasePart") or coin:IsA("Model") then
+                            local touchPart = nil
+
+                            if coin:FindFirstChild("TouchInterest") then
+                                touchPart = coin
+                            elseif coin:IsA("Model") then
+                                for _, child in ipairs(coin:GetDescendants()) do
+                                    if child:IsA("BasePart") and child:FindFirstChild("TouchInterest") then
+                                        touchPart = child
+                                        break
+                                    end
+                                end
+                            end
+
+                            if touchPart then
+                                pcall(function()
+                                    firetouchinterest(hrp, touchPart, 0)
+                                    task.wait(0.05)
+                                    firetouchinterest(hrp, touchPart, 1)
+                                end)
+                            end
+                        end
+                    end
+                end
+
+                for _, obj in ipairs(workspace:GetDescendants()) do
+                    if not autoCoins then break end
+                    if obj.Name:lower():find("coin") and (obj:IsA("BasePart") or obj:IsA("Model")) then
+                        local touchPart = nil
+                        if obj:FindFirstChild("TouchInterest") then
+                            touchPart = obj
+                        elseif obj:IsA("Model") then
+                            for _, child in ipairs(obj:GetDescendants()) do
+                                if child:IsA("BasePart") and child:FindFirstChild("TouchInterest") then
+                                    touchPart = child
+                                    break
+                                end
+                            end
+                        end
+
+                        if touchPart then
+                            pcall(function()
+                                firetouchinterest(hrp, touchPart, 0)
+                                task.wait(0.05)
+                                firetouchinterest(hrp, touchPart, 1)
+                            end)
+                        end
+                    end
+                end
+            end
+        end
+        task.wait(0.1)
+    end
+end)
+
+--// REQUIRED
+library:Init()

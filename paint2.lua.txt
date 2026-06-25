@@ -1,0 +1,1014 @@
+--// Seeker Hub v12 | Built for LO by ENI
+--// Three Windows: "Aimbot" (flat) + "Player" (flat) + "XerHub" (ESP folder + Hiders folder)
+--// Chams + Skeleton + Name ESP only | Fixed ESP | Hiders-ONLY aimbot (no seekers) | Modern raycast wallcheck | Fixed target switching | Float 50
+--// Date: 2026-06-21
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Debris = game:GetService("Debris")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+-- ============================================
+-- CONFIGURATION
+-- ============================================
+local CONFIG = {
+    FOV = 200,
+    AimbotSmoothness = 0.15,
+    ESPMaxDistance = 500,
+    TeamCheckInterval = 1,
+    ESPColor = Color3.fromRGB(255, 50, 50),
+    SkeletonColor = Color3.fromRGB(255, 100, 100),
+    WallCheck = true,
+    FloatUpOffset = 50,  -- 50 studs above saved position
+    FloatUpSpeed = 0.08
+}
+
+-- ============================================
+-- TORA LIBRARY INIT
+-- ============================================
+local library = loadstring(game:HttpGet("https://raw.githubusercontent.com/liebertsx/Tora-Library/main/src/librarynew", true))()
+
+-- Window 1: Aimbot (FLAT - no folders)
+local AimbotWindow = library:CreateWindow("Aimbot")
+
+-- Window 2: Player (FLAT - no folders)
+local PlayerWindow = library:CreateWindow("Player")
+
+-- Window 3: XerHub (ESP folder + Hiders folder)
+local XerHubWindow = library:CreateWindow("XerHub")
+local ESPTab = XerHubWindow:AddFolder("ESP")
+local HidersTab = XerHubWindow:AddFolder("Hiders")
+
+-- ============================================
+-- TEAM CHECK SYSTEM
+-- ============================================
+local TeamCache = {
+    IsSeeker = false,
+    IsLobby = false
+}
+
+local function GetUserModel()
+    local myName = LocalPlayer.Name
+    local model = Workspace:FindFirstChild(myName)
+    if model and model:IsA("Model") then
+        return model
+    end
+    return LocalPlayer.Character
+end
+
+local function CheckTeam()
+    local model = GetUserModel()
+    if not model then
+        TeamCache.IsSeeker = false
+        TeamCache.IsLobby = false
+        return
+    end
+
+    local hasGun = model:FindFirstChild("SeekerWorldGun") ~= nil
+    local hasPants = model:FindFirstChild("Pants") ~= nil
+
+    TeamCache.IsSeeker = hasGun
+    TeamCache.IsLobby = hasPants and not hasGun
+end
+
+task.spawn(function()
+    while true do
+        CheckTeam()
+        task.wait(CONFIG.TeamCheckInterval)
+    end
+end)
+
+CheckTeam()
+
+LocalPlayer.CharacterAdded:Connect(function()
+    task.wait(1)
+    CheckTeam()
+end)
+
+-- ============================================
+-- NOTIFICATION SYSTEM
+-- ============================================
+local NotifGui = Instance.new("ScreenGui")
+NotifGui.Name = "ENINotifs"
+NotifGui.ResetOnSpawn = false
+NotifGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+NotifGui.Parent = PlayerGui
+
+local function ShowNotification(text, color)
+    color = color or Color3.fromRGB(255, 60, 60)
+
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.fromScale(0.6, 0.07)
+    frame.Position = UDim2.fromScale(0.2, -0.15)
+    frame.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+    frame.BorderSizePixel = 0
+    frame.Parent = NotifGui
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = frame
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Thickness = 1.5
+    stroke.Color = color
+    stroke.Parent = frame
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.fromScale(1, 1)
+    label.BackgroundTransparency = 1
+    label.Font = Enum.Font.GothamBold
+    label.Text = text
+    label.TextColor3 = Color3.new(1, 1, 1)
+    label.TextScaled = true
+    label.Parent = frame
+
+    local constraint = Instance.new("UITextSizeConstraint")
+    constraint.MaxTextSize = 20
+    constraint.Parent = label
+
+    TweenService:Create(frame, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+        Position = UDim2.fromScale(0.2, 0.03)
+    }):Play()
+
+    task.delay(2.5, function()
+        TweenService:Create(frame, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+            Position = UDim2.fromScale(0.2, -0.15)
+        }):Play()
+        Debris:AddItem(frame, 0.3)
+    end)
+end
+
+-- ============================================
+-- SEEKER GUARD
+-- ============================================
+local function SeekerOnly(callback)
+    return function(...)
+        if not TeamCache.IsSeeker then
+            ShowNotification("SEEKER ONLY")
+            return
+        end
+        callback(...)
+    end
+end
+
+-- ============================================
+-- HIDER GUARD
+-- ============================================
+local function HiderOnly(callback)
+    return function(...)
+        if TeamCache.IsSeeker or TeamCache.IsLobby then
+            ShowNotification("HIDERS ONLY")
+            return
+        end
+        callback(...)
+    end
+end
+
+-- ============================================
+-- ESP SYSTEM (Chams + Name + Skeleton only — Health REMOVED)
+-- ============================================
+local ESP = {
+    Enabled = false,
+    SkeletonEnabled = false,
+    NameEnabled = false,
+    ChamsEnabled = false,
+    ShowSeekers = false,
+    Elements = {},
+    ScreenGui = nil
+}
+
+ESP.ScreenGui = Instance.new("ScreenGui")
+ESP.ScreenGui.Name = "ESPHud_v11"
+ESP.ScreenGui.ResetOnSpawn = false
+ESP.ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ESP.ScreenGui.Parent = PlayerGui
+
+local function GetPlayerTeam(player)
+    local char = player.Character
+    if not char then return "UNKNOWN" end
+
+    local hasGun = char:FindFirstChild("SeekerWorldGun") ~= nil
+    local hasPants = char:FindFirstChild("Pants") ~= nil
+
+    if hasGun then return "SEEKER" end
+    if hasPants and not hasGun then return "LOBBY" end
+    return "HIDER"
+end
+
+local function GetTeamColor(teamName)
+    if teamName == "SEEKER" then return Color3.fromRGB(255, 50, 50) end
+    if teamName == "LOBBY" then return Color3.fromRGB(50, 150, 255) end
+    return Color3.fromRGB(50, 255, 100)
+end
+
+local function ShouldShowESP(player)
+    if player == LocalPlayer then return false end
+    local team = GetPlayerTeam(player)
+    if team == "HIDER" then return true end
+    if team == "SEEKER" and ESP.ShowSeekers then return true end
+    return false
+end
+
+local function IsHider(player)
+    if player == LocalPlayer then return false end
+    return GetPlayerTeam(player) == "HIDER"
+end
+
+local function WorldToScreen(pos)
+    local ok, screenPos, onScreen = pcall(function()
+        local sp, os, z = Camera:WorldToViewportPoint(pos)
+        return Vector2.new(sp.X, sp.Y), os, z
+    end)
+    if ok then
+        return screenPos, onScreen, screenPos and true
+    end
+    return Vector2.new(0, 0), false, 0
+end
+
+-- Get actual character bounds using all parts
+local function GetCharBounds(character)
+    local minX, minY, maxX, maxY = math.huge, math.huge, -math.huge, -math.huge
+    local hasParts = false
+
+    for _, part in ipairs(character:GetDescendants()) do
+        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+            local pos = part.Position
+            local size = part.Size
+            local ok1, screenPos, onScreen = pcall(function()
+                local sp, os = Camera:WorldToViewportPoint(pos)
+                return Vector2.new(sp.X, sp.Y), os
+            end)
+            if ok1 and onScreen then
+                local halfSize = math.max(size.X, size.Z) * 0.8
+                local ok2, topScreen = pcall(function()
+                    local sp = Camera:WorldToViewportPoint(pos + Vector3.new(0, size.Y/2, 0))
+                    return Vector2.new(sp.X, sp.Y)
+                end)
+                local ok3, bottomScreen = pcall(function()
+                    local sp = Camera:WorldToViewportPoint(pos - Vector3.new(0, size.Y/2, 0))
+                    return Vector2.new(sp.X, sp.Y)
+                end)
+
+                if ok2 and ok3 then
+                    minX = math.min(minX, screenPos.X - halfSize)
+                    maxX = math.max(maxX, screenPos.X + halfSize)
+                    minY = math.min(minY, topScreen.Y)
+                    maxY = math.max(maxY, bottomScreen.Y)
+                    hasParts = true
+                end
+            end
+        end
+    end
+
+    if not hasParts then
+        local root = character:FindFirstChild("HumanoidRootPart")
+        if root then
+            local ok, sp, on = pcall(function()
+                local s, o = Camera:WorldToViewportPoint(root.Position)
+                return Vector2.new(s.X, s.Y), o
+            end)
+            if ok and on then
+                return {sp.X - 30, sp.Y - 50, sp.X + 30, sp.Y + 50}
+            end
+        end
+        return nil
+    end
+
+    return {minX, minY, maxX, maxY}
+end
+
+-- FIXED: Properly destroy ALL elements including Drawing lines
+local function DestroyESPForPlayer(player)
+    if ESP.Elements[player] then
+        local data = ESP.Elements[player]
+        -- Chams: parented to character now, clean up safely
+        if data.ChamHighlight then
+            pcall(function() data.ChamHighlight:Destroy() end)
+        end
+        if data.NameBg then
+            pcall(function() data.NameBg:Destroy() end)
+        end
+        if data.NameLabel then
+            pcall(function() data.NameLabel:Destroy() end)
+        end
+        -- Drawing lines must be :Remove()d, not :Destroy()ed
+        if data.SkelLines then
+            for _, line in ipairs(data.SkelLines) do
+                pcall(function() line:Remove() end)
+            end
+        end
+        ESP.Elements[player] = nil
+    end
+end
+
+local function CreateESPForPlayer(player)
+    DestroyESPForPlayer(player)
+
+    -- Chams (Highlight): parented to character for correct rendering
+    local chamHighlight = Instance.new("Highlight")
+    chamHighlight.Name = player.Name .. "_Chams"
+    chamHighlight.FillColor = Color3.fromRGB(255, 50, 50)
+    chamHighlight.FillTransparency = 0.6
+    chamHighlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+    chamHighlight.OutlineTransparency = 0.2
+    chamHighlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    chamHighlight.Enabled = false
+    -- Parent to character instead of ScreenGui (fixes ESP breaking)
+    local char = player.Character
+    if char then
+        chamHighlight.Parent = char
+    else
+        chamHighlight.Parent = ESP.ScreenGui  -- fallback until character loads
+    end
+
+    local skelLines = {}
+    for i = 1, 10 do
+        local line = Drawing.new("Line")
+        line.Visible = false
+        line.Thickness = 1.5
+        line.Color = CONFIG.SkeletonColor
+        line.Transparency = 0.9
+        table.insert(skelLines, line)
+    end
+
+    local nameBg = Instance.new("Frame")
+    nameBg.Name = player.Name .. "_NameBg"
+    nameBg.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    nameBg.BackgroundTransparency = 0.4
+    nameBg.BorderSizePixel = 0
+    nameBg.Visible = false
+    nameBg.Parent = ESP.ScreenGui
+
+    local nameCorner = Instance.new("UICorner")
+    nameCorner.CornerRadius = UDim.new(0, 3)
+    nameCorner.Parent = nameBg
+
+    local nameLabel = Instance.new("TextLabel")
+    nameLabel.Name = player.Name .. "_Name"
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.Font = Enum.Font.GothamBold
+    nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    nameLabel.TextStrokeTransparency = 0.5
+    nameLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    nameLabel.TextSize = 11
+    nameLabel.Visible = false
+    nameLabel.Parent = ESP.ScreenGui
+
+    ESP.Elements[player] = {
+        ChamHighlight = chamHighlight,
+        SkelLines = skelLines,
+        NameBg = nameBg,
+        NameLabel = nameLabel
+    }
+end
+
+-- FIXED: Create ESP for newly joined players
+Players.PlayerAdded:Connect(function(player)
+    if ESP.Enabled then
+        task.wait(2)  -- wait for character to load
+        CreateESPForPlayer(player)
+    end
+    player.CharacterAdded:Connect(function()
+        if ESP.Elements[player] then
+            DestroyESPForPlayer(player)
+        end
+        if ESP.Enabled then
+            task.wait(1)
+            CreateESPForPlayer(player)
+        end
+    end)
+end)
+
+-- Existing players: create ESP + handle respawn
+for _, player in ipairs(Players:GetPlayers()) do
+    if player ~= LocalPlayer and ESP.Enabled then
+        task.wait(0.5)
+        CreateESPForPlayer(player)
+    end
+    player.CharacterAdded:Connect(function()
+        if ESP.Elements[player] then
+            DestroyESPForPlayer(player)
+        end
+        if ESP.Enabled then
+            task.wait(1)
+            CreateESPForPlayer(player)
+        end
+    end)
+end
+
+-- FIXED: Clean up when players leave so ESP doesn't stick
+Players.PlayerRemoving:Connect(function(player)
+    DestroyESPForPlayer(player)
+end)
+
+local function HideAllESP(data)
+    pcall(function()
+        data.ChamHighlight.Enabled = false
+        data.ChamHighlight.Adornee = nil
+    end)
+    for _, line in ipairs(data.SkelLines) do
+        pcall(function() line.Visible = false end)
+    end
+    pcall(function()
+        data.NameBg.Visible = false
+        data.NameLabel.Visible = false
+    end)
+end
+
+local function UpdateESP()
+    if not ESP.Enabled then
+        for _, data in pairs(ESP.Elements) do
+            HideAllESP(data)
+        end
+        return
+    end
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if ShouldShowESP(player) then
+            local char = player.Character
+            if not char then
+                if ESP.Elements[player] then
+                    HideAllESP(ESP.Elements[player])
+                end
+                continue
+            end
+
+            local humanoid = char:FindFirstChildOfClass("Humanoid")
+
+            if not ESP.Elements[player] then
+                CreateESPForPlayer(player)
+            end
+
+            local data = ESP.Elements[player]
+
+            -- Re-parent highlight if it's on ScreenGui and character exists
+            if data.ChamHighlight and data.ChamHighlight.Parent ~= char then
+                pcall(function() data.ChamHighlight.Parent = char end)
+            end
+
+            if humanoid and humanoid.Health > 0 then
+                local ok, bounds = pcall(GetCharBounds, char)
+
+                if ok and bounds then
+                    local left, top, right, bottom = bounds[1], bounds[2], bounds[3], bounds[4]
+                    local width = right - left
+                    local height = bottom - top
+                    local screenPos = Vector2.new((left + right) / 2, (top + bottom) / 2)
+                    local depth = (Camera.CFrame.Position - (char:GetPivot().Position)).Magnitude
+
+                    if depth > 0 and depth < CONFIG.ESPMaxDistance then
+                        local teamName = GetPlayerTeam(player)
+                        local teamColor = GetTeamColor(teamName)
+
+                        -- Chams
+                        if ESP.ChamsEnabled then
+                            pcall(function()
+                                data.ChamHighlight.Adornee = char
+                                data.ChamHighlight.Enabled = true
+                                data.ChamHighlight.FillColor = teamColor
+                                data.ChamHighlight.OutlineColor = teamColor
+                            end)
+                        else
+                            pcall(function()
+                                data.ChamHighlight.Enabled = false
+                                data.ChamHighlight.Adornee = nil
+                            end)
+                        end
+
+                        -- Name ESP with background
+                        if ESP.NameEnabled then
+                            local nameText = string.format("%s [%s]", player.Name, teamName)
+                            local ok2, textSize = pcall(function()
+                                return game:GetService("TextService"):GetTextSize(nameText, 11, Enum.Font.GothamBold, Vector2.new(999, 999))
+                            end)
+                            if ok2 then
+                                pcall(function()
+                                    data.NameBg.Visible = true
+                                    data.NameBg.Position = UDim2.fromOffset(screenPos.X - textSize.X / 2 - 4, top - 24)
+                                    data.NameBg.Size = UDim2.fromOffset(textSize.X + 8, 18)
+
+                                    data.NameLabel.Visible = true
+                                    data.NameLabel.Position = UDim2.fromOffset(screenPos.X - textSize.X / 2, top - 24)
+                                    data.NameLabel.Size = UDim2.fromOffset(textSize.X, 18)
+                                    data.NameLabel.Text = nameText
+                                    data.NameLabel.TextColor3 = teamColor
+                                end)
+                            end
+                        else
+                            pcall(function()
+                                data.NameBg.Visible = false
+                                data.NameLabel.Visible = false
+                            end)
+                        end
+
+                        -- Skeleton ESP
+                        if ESP.SkeletonEnabled then
+                            local parts = {
+                                Head = char:FindFirstChild("Head"),
+                                Neck = char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso"),
+                                Torso = char:FindFirstChild("LowerTorso") or char:FindFirstChild("Torso"),
+                                LeftShoulder = char:FindFirstChild("LeftUpperArm") or char:FindFirstChild("Left Arm") or char:FindFirstChild("LeftArm"),
+                                RightShoulder = char:FindFirstChild("RightUpperArm") or char:FindFirstChild("Right Arm") or char:FindFirstChild("RightArm"),
+                                LeftElbow = char:FindFirstChild("LeftLowerArm") or char:FindFirstChild("LeftHand"),
+                                RightElbow = char:FindFirstChild("RightLowerArm") or char:FindFirstChild("RightHand"),
+                                LeftHip = char:FindFirstChild("LeftUpperLeg") or char:FindFirstChild("Left Leg") or char:FindFirstChild("LeftLeg"),
+                                RightHip = char:FindFirstChild("RightUpperLeg") or char:FindFirstChild("Right Leg") or char:FindFirstChild("RightLeg"),
+                                LeftKnee = char:FindFirstChild("LeftLowerLeg") or char:FindFirstChild("LeftFoot"),
+                                RightKnee = char:FindFirstChild("RightLowerLeg") or char:FindFirstChild("RightFoot")
+                            }
+
+                            local connections = {
+                                {parts.Head, parts.Neck},
+                                {parts.Neck, parts.Torso},
+                                {parts.Neck, parts.LeftShoulder},
+                                {parts.Neck, parts.RightShoulder},
+                                {parts.LeftShoulder, parts.LeftElbow},
+                                {parts.RightShoulder, parts.RightElbow},
+                                {parts.Torso, parts.LeftHip},
+                                {parts.Torso, parts.RightHip},
+                                {parts.LeftHip, parts.LeftKnee},
+                                {parts.RightHip, parts.RightKnee}
+                            }
+
+                            local lineIdx = 1
+                            for _, conn in ipairs(connections) do
+                                if conn[1] and conn[2] and lineIdx <= #data.SkelLines then
+                                    local ok3, p1, on1 = pcall(function()
+                                        local sp, o = Camera:WorldToViewportPoint(conn[1].Position)
+                                        return Vector2.new(sp.X, sp.Y), o
+                                    end)
+                                    local ok4, p2, on2 = pcall(function()
+                                        local sp, o = Camera:WorldToViewportPoint(conn[2].Position)
+                                        return Vector2.new(sp.X, sp.Y), o
+                                    end)
+                                    if ok3 and ok4 and on1 and on2 then
+                                        pcall(function()
+                                            data.SkelLines[lineIdx].From = p1
+                                            data.SkelLines[lineIdx].To = p2
+                                            data.SkelLines[lineIdx].Visible = true
+                                            data.SkelLines[lineIdx].Color = teamColor
+                                        end)
+                                        lineIdx = lineIdx + 1
+                                    end
+                                end
+                            end
+
+                            for i = lineIdx, #data.SkelLines do
+                                pcall(function() data.SkelLines[i].Visible = false end)
+                            end
+                        else
+                            for _, line in ipairs(data.SkelLines) do
+                                pcall(function() line.Visible = false end)
+                            end
+                        end
+                    else
+                        HideAllESP(data)
+                    end
+                else
+                    HideAllESP(data)
+                end
+            else
+                HideAllESP(data)
+            end
+        else
+            if ESP.Elements[player] then
+                HideAllESP(ESP.Elements[player])
+            end
+        end
+    end
+end
+
+-- ============================================
+-- FOV CIRCLE
+-- ============================================
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Visible = false
+FOVCircle.Thickness = 2
+FOVCircle.Color = Color3.fromRGB(255, 255, 255)
+FOVCircle.Transparency = 0.5
+FOVCircle.Filled = false
+FOVCircle.NumSides = 64
+
+local function UpdateFOV()
+    local vp = Camera.ViewportSize
+    FOVCircle.Position = Vector2.new(vp.X / 2, vp.Y / 2)
+    FOVCircle.Radius = CONFIG.FOV
+end
+
+-- ============================================
+-- WALL CHECK (Modern Raycast — not deprecated Ray.new)
+-- ============================================
+local function IsVisible(targetCharacter)
+    if not CONFIG.WallCheck then return true end
+    if not targetCharacter then return false end
+
+    local targetRoot = targetCharacter:FindFirstChild("HumanoidRootPart")
+    if not targetRoot then return false end
+
+    local cameraPos = Camera.CFrame.Position
+    local targetPos = targetRoot.Position + Vector3.new(0, 1, 0)
+    local direction = (targetPos - cameraPos)
+    local distance = direction.Magnitude
+
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+
+    local ignoreList = {}
+    if LocalPlayer.Character then
+        for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                table.insert(ignoreList, part)
+            end
+        end
+    end
+    for _, part in ipairs(targetCharacter:GetDescendants()) do
+        if part:IsA("BasePart") then
+            table.insert(ignoreList, part)
+        end
+    end
+    params.FilterDescendantsInstances = ignoreList
+
+    local ok, result = pcall(function()
+        return Workspace:Raycast(cameraPos, direction, params)
+    end)
+
+    -- If raycast fails or hits nothing, target is visible
+    if not ok or not result then
+        return true
+    end
+
+    -- If the ray hit something that belongs to the target character, they are visible
+    if result.Instance and result.Instance:IsDescendantOf(targetCharacter) then
+        return true
+    end
+
+    -- Something else (wall/prop) is blocking the view
+    return false
+end
+
+-- ============================================
+-- AIMBOT SYSTEM (Hiders Only, FOV Circle Only)
+-- ============================================
+local Aimbot = {
+    Enabled = false,
+    Target = nil
+}
+
+-- Improved: Head > UpperTorso > HumanoidRootPart priority
+local function GetAimPos(character)
+    local head = character:FindFirstChild("Head")
+    if head then
+        return head.Position
+    end
+    local torso = character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso")
+    if torso then
+        return torso.Position
+    end
+    local root = character:FindFirstChild("HumanoidRootPart")
+    if root then
+        return root.Position
+    end
+    return character:GetPivot().Position
+end
+
+-- Validate target is still a living HIDER (not seeker, not dead, not gone)
+local function IsTargetValid(target)
+    if not target then return false end
+    if not target.Parent then return false end
+    -- CRITICAL: re-check team every frame — hider might have become seeker
+    if not IsHider(target) then return false end
+    local char = target.Character
+    if not char then return false end
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    if not humanoid or humanoid.Health <= 0 then return false end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then return false end
+    return true
+end
+
+-- Get closest hider inside the FOV circle
+local function GetClosestHiderInFOV()
+    local closest = nil
+    local closestDist = math.huge
+    local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and IsHider(player) then
+            local char = player.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+
+            if char and root and humanoid and humanoid.Health > 0 then
+                local visible = IsVisible(char)
+                if visible then
+                    local ok, screenPos, onScreen = pcall(function()
+                        local sp, o = Camera:WorldToViewportPoint(root.Position)
+                        return Vector2.new(sp.X, sp.Y), o
+                    end)
+                    if ok and onScreen then
+                        local dist = (screenPos - center).Magnitude
+                        if dist < CONFIG.FOV and dist < closestDist then
+                            closestDist = dist
+                            closest = player
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return closest
+end
+
+local function AimAt(target)
+    if not target then return end
+    local char = target.Character
+    if not char then return end
+
+    local targetPos = GetAimPos(char)
+    local currentCF = Camera.CFrame
+    local targetCF = CFrame.lookAt(currentCF.Position, targetPos)
+    Camera.CFrame = currentCF:Lerp(targetCF, CONFIG.AimbotSmoothness)
+end
+
+-- ============================================
+-- AIMBOT WINDOW (FLAT - no folders)
+-- ============================================
+AimbotWindow:AddToggle({
+    text = "Enable Aimbot",
+    flag = "aimbot",
+    callback = SeekerOnly(function(v)
+        Aimbot.Enabled = v
+        FOVCircle.Visible = v
+        if not v then
+            Aimbot.Target = nil
+        end
+    end)
+})
+
+AimbotWindow:AddToggle({
+    text = "Wall Check",
+    flag = "wall_check",
+    callback = function(v)
+        CONFIG.WallCheck = v
+    end
+})
+
+AimbotWindow:AddToggle({
+    text = "Show FOV",
+    flag = "show_fov",
+    callback = function(v)
+        if Aimbot.Enabled then
+            FOVCircle.Visible = v
+        end
+    end
+})
+
+AimbotWindow:AddSlider({
+    text = "FOV Size",
+    min = 50,
+    max = 400,
+    dual = false,
+    type = "slider",
+    callback = function(v)
+        CONFIG.FOV = v
+        UpdateFOV()
+    end
+})
+
+AimbotWindow:AddSlider({
+    text = "Smoothness",
+    min = 1,
+    max = 100,
+    dual = false,
+    type = "slider",
+    callback = function(v)
+        CONFIG.AimbotSmoothness = v / 100
+    end
+})
+
+-- ============================================
+-- PLAYER WINDOW (FLAT - no folders)
+-- ============================================
+local PlayerSettings = {
+    Speed = 16,
+    Jump = 50,
+    Noclip = false,
+    NoclipConnection = nil
+}
+
+local function GetHumanoid()
+    local char = LocalPlayer.Character
+    if char then
+        return char:FindFirstChildOfClass("Humanoid")
+    end
+    return nil
+end
+
+PlayerWindow:AddSlider({
+    text = "Walk Speed",
+    min = 16,
+    max = 200,
+    dual = false,
+    type = "slider",
+    callback = function(v)
+        PlayerSettings.Speed = v
+        local humanoid = GetHumanoid()
+        if humanoid then
+            humanoid.WalkSpeed = v
+        end
+    end
+})
+
+PlayerWindow:AddSlider({
+    text = "Jump Power",
+    min = 50,
+    max = 200,
+    dual = false,
+    type = "slider",
+    callback = function(v)
+        PlayerSettings.Jump = v
+        local humanoid = GetHumanoid()
+        if humanoid then
+            humanoid.JumpPower = v
+        end
+    end
+})
+
+PlayerWindow:AddToggle({
+    text = "Noclip",
+    flag = "noclip",
+    callback = function(v)
+        PlayerSettings.Noclip = v
+
+        if v then
+            PlayerSettings.NoclipConnection = RunService.Stepped:Connect(function()
+                local char = LocalPlayer.Character
+                if char then
+                    for _, part in ipairs(char:GetDescendants()) do
+                        if part:IsA("BasePart") then
+                            part.CanCollide = false
+                        end
+                    end
+                end
+            end)
+        else
+            if PlayerSettings.NoclipConnection then
+                PlayerSettings.NoclipConnection:Disconnect()
+                PlayerSettings.NoclipConnection = nil
+            end
+
+            local char = LocalPlayer.Character
+            if char then
+                for _, part in ipairs(char:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.CanCollide = true
+                    end
+                end
+            end
+        end
+    end
+})
+
+LocalPlayer.CharacterAdded:Connect(function(char)
+    task.wait(0.5)
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        humanoid.WalkSpeed = PlayerSettings.Speed
+        humanoid.JumpPower = PlayerSettings.Jump
+    end
+end)
+
+-- ============================================
+-- XERHUB WINDOW - ESP FOLDER (Health ESP REMOVED)
+-- ============================================
+ESPTab:AddToggle({
+    text = "enable ESP",
+    flag = "esp_master",
+    callback = function(v)
+        ESP.Enabled = v
+        if not v then
+            for _, data in pairs(ESP.Elements) do
+                HideAllESP(data)
+            end
+        end
+    end
+})
+
+ESPTab:AddToggle({
+    text = "Show Seekers",
+    flag = "esp_seekers",
+    callback = function(v)
+        ESP.ShowSeekers = v
+    end
+})
+
+ESPTab:AddToggle({
+    text = "Chams",
+    flag = "esp_chams",
+    callback = function(v)
+        ESP.ChamsEnabled = v
+    end
+})
+
+ESPTab:AddToggle({
+    text = "Skeleton ESP",
+    flag = "esp_skeleton",
+    callback = function(v)
+        ESP.SkeletonEnabled = v
+    end
+})
+
+ESPTab:AddToggle({
+    text = "Name ESP",
+    flag = "esp_name",
+    callback = function(v)
+        ESP.NameEnabled = v
+    end
+})
+
+ESPTab:AddSlider({
+    text = "Max Distance",
+    min = 50,
+    max = 1000,
+    dual = false,
+    type = "slider",
+    callback = function(v)
+        CONFIG.ESPMaxDistance = v
+    end
+})
+
+-- ============================================
+-- XERHUB WINDOW - HIDERS FOLDER (Safe Float Up - Hider Only)
+-- ============================================
+local floatUp = false
+local floatConnection
+local savedPos = nil
+
+HidersTab:AddToggle({
+    text = "Float Up",
+    flag = "float_up",
+    callback = HiderOnly(function(v)
+        floatUp = v
+        if floatUp then
+            local char = LocalPlayer.Character
+            if char and char:FindFirstChild("HumanoidRootPart") then
+                savedPos = char.HumanoidRootPart.CFrame
+            end
+            floatConnection = RunService.Heartbeat:Connect(function()
+                if not floatUp then return end
+                local char = LocalPlayer.Character
+                if char and char:FindFirstChild("HumanoidRootPart") and savedPos then
+                    local hrp = char.HumanoidRootPart
+                    -- Float 50 studs above saved position
+                    hrp.CFrame = CFrame.new(savedPos.X, savedPos.Y + CONFIG.FloatUpOffset, savedPos.Z)
+                    hrp.Velocity = Vector3.new(0, 0, 0)
+                    hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                end
+            end)
+        else
+            if floatConnection then
+                floatConnection:Disconnect()
+                floatConnection = nil
+            end
+            local char = LocalPlayer.Character
+            if char and char:FindFirstChild("HumanoidRootPart") and savedPos then
+                char.HumanoidRootPart.CFrame = savedPos
+            end
+            savedPos = nil
+        end
+    end)
+})
+
+-- ============================================
+-- MAIN RENDER LOOP
+-- ============================================
+RunService.RenderStepped:Connect(function()
+    UpdateFOV()
+    UpdateESP()
+
+    -- Aimbot: ALWAYS re-scan for closest hider in FOV each frame (never gets stuck)
+    if Aimbot.Enabled and TeamCache.IsSeeker then
+        -- Force fresh scan every frame — no more sticking to dead/wrong targets
+        Aimbot.Target = GetClosestHiderInFOV()
+        if Aimbot.Target then
+            AimAt(Aimbot.Target)
+        end
+    else
+        Aimbot.Target = nil
+    end
+end)
+
+-- ============================================
+-- INIT
+-- ============================================
+library:Init()
+
+print("[SeekerHub v12] Loaded | ESP Fixed | Health Removed | Hiders-ONLY Aimbot | Modern WallCheck | No-Stick Aimbot | Float 50")

@@ -1,0 +1,269 @@
+local library = loadstring(game:HttpGet("https://raw.githubusercontent.com/liebertsx/Tora-Library/main/src/librarynew",true))()
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+local RS = game:GetService("RunService")
+
+--// UI
+local win = library:CreateWindow("XerHub")
+
+--// Cracked Sprint
+local crackedSprint = false
+
+win:AddToggle({
+    text = "Infinity Sprint",
+    flag = "inf_sprint",
+    callback = function(v)
+        crackedSprint = v
+    end
+})
+
+--// ESP
+local espEnabled = false
+local espCache = {}
+
+win:AddToggle({
+    text = "ESP",
+    flag = "esp",
+    callback = function(v)
+        espEnabled = v
+    end
+})
+
+--// Float Up - saves position, doesn't drop
+local floatUp = false
+local floatConnection
+local savedPos = nil
+
+win:AddToggle({
+    text = "Float Up",
+    flag = "float",
+    callback = function(v)
+        floatUp = v
+        if floatUp then
+            local char = LocalPlayer.Character
+            if char and char:FindFirstChild("HumanoidRootPart") then
+                savedPos = char.HumanoidRootPart.CFrame
+            end
+            floatConnection = RunService.Heartbeat:Connect(function()
+                if not floatUp then return end
+                local char = LocalPlayer.Character
+                if char and char:FindFirstChild("HumanoidRootPart") then
+                    local hrp = char.HumanoidRootPart
+                    hrp.CFrame = CFrame.new(savedPos.X, 500, savedPos.Z)
+                    hrp.Velocity = Vector3.new(0, 0, 0)
+                end
+            end)
+        else
+            if floatConnection then
+                floatConnection:Disconnect()
+                floatConnection = nil
+            end
+            -- Teleport back to saved position
+            local char = LocalPlayer.Character
+            if char and char:FindFirstChild("HumanoidRootPart") and savedPos then
+                char.HumanoidRootPart.CFrame = savedPos
+            end
+            savedPos = nil
+        end
+    end
+})
+
+--// Catch All Hiders
+local catchAll = false
+
+win:AddToggle({
+    text = "Catch All",
+    flag = "catch",
+    callback = function(v)
+        catchAll = v
+        if catchAll then
+            task.spawn(function()
+                while catchAll do
+                    local myChar = LocalPlayer.Character
+                    if not myChar or not myChar:FindFirstChild("HumanoidRootPart") then
+                        task.wait(0.5)
+                        continue
+                    end
+
+                    for _, player in ipairs(Players:GetPlayers()) do
+                        if not catchAll then break end
+                        if player == LocalPlayer then continue end
+
+                        local isHider = false
+                        pcall(function()
+                            if player.Team and (player.Team.Name == "Hider" or player.Team.Name == "Hiders") then
+                                isHider = true
+                            end
+                        end)
+
+                        if isHider then
+                            local char = player.Character
+                            if char and char:FindFirstChild("HumanoidRootPart") then
+                                myChar.HumanoidRootPart.CFrame = char.HumanoidRootPart.CFrame + Vector3.new(0, 3, 0)
+                                task.wait(0.4)
+                            end
+                        end
+                    end
+
+                    task.wait(0.1)
+                end
+            end)
+        end
+    end
+})
+
+--// ========== SPRINT MOD INJECTOR ==========
+task.wait(0.5)
+
+local func, staminaIdx, exhaustIdx, vignetteIdx
+
+for _, f in pairs(getgc()) do
+    if type(f) == "function" then
+        local info = debug.getinfo(f)
+        if info.source and info.source:find("SprintClient") and info.nups and info.nups >= 20 then
+            local ups = debug.getupvalues(f)
+            for i, v in pairs(ups) do
+                if v == 100 then
+                    func = f
+                    staminaIdx = i
+                    exhaustIdx = i - 3
+                    break
+                elseif typeof(v) == "Frame" then
+                    vignetteIdx = i
+                end
+            end
+            if func then break end
+        end
+    end
+end
+
+--// Change EXHAUSTED text to CRACKED BY XER
+local function patchExhaustedText()
+    for _, gui in pairs(LocalPlayer.PlayerGui:GetDescendants()) do
+        if gui:IsA("TextLabel") or gui:IsA("TextButton") then
+            if gui.Text == "EXHAUSTED" then
+                gui.Text = "CRACKED BY XER"
+                gui.TextColor3 = Color3.fromRGB(255, 0, 255)
+            end
+        end
+    end
+end
+
+--// Hook every frame
+RS.RenderStepped:Connect(function()
+    if crackedSprint and staminaIdx then
+        debug.setupvalue(func, staminaIdx, 100)
+    end
+    if crackedSprint then
+        if exhaustIdx then
+            debug.setupvalue(func, exhaustIdx, false)
+        end
+        if vignetteIdx then
+            local frame = debug.getupvalue(func, vignetteIdx)
+            if frame then
+                frame.BackgroundTransparency = 1
+            end
+        end
+        patchExhaustedText()
+    end
+end)
+
+LocalPlayer.PlayerGui.DescendantAdded:Connect(function(desc)
+    if desc:IsA("TextLabel") or desc:IsA("TextButton") then
+        if desc.Text == "EXHAUSTED" then
+            desc.Text = "CRACKED BY XER"
+            desc.TextColor3 = Color3.fromRGB(255, 0, 255)
+        end
+    end
+end)
+
+--// ========== ESP SYSTEM ==========
+local function removeESP(player)
+    if espCache[player] then
+        pcall(function()
+            espCache[player]:Destroy()
+        end)
+        espCache[player] = nil
+    end
+end
+
+local function createESP(player)
+    if player == LocalPlayer then return end
+    removeESP(player)
+
+    local function setupCharacter(char)
+        local head = char:WaitForChild("Head", 5)
+        if not head then return end
+
+        local billboard = Instance.new("BillboardGui")
+        billboard.Name = "HnS_ESP"
+        billboard.Adornee = head
+        billboard.Size = UDim2.new(0, 200, 0, 50)
+        billboard.StudsOffset = Vector3.new(0, 3, 0)
+        billboard.AlwaysOnTop = true
+
+        local label = Instance.new("TextLabel")
+        label.Size = UDim2.new(1, 0, 1, 0)
+        label.BackgroundTransparency = 1
+        label.TextStrokeTransparency = 0
+        label.TextStrokeColor3 = Color3.new(0, 0, 0)
+        label.Font = Enum.Font.GothamBold
+        label.TextSize = 14
+        label.Parent = billboard
+
+        billboard.Parent = head
+        espCache[player] = billboard
+
+        task.spawn(function()
+            while billboard and billboard.Parent do
+                if not espEnabled then
+                    billboard.Enabled = false
+                    task.wait(0.3)
+                    continue
+                end
+
+                billboard.Enabled = true
+
+                local teamName = "?"
+                local teamColor = Color3.new(1, 1, 1)
+
+                pcall(function()
+                    if player.Team then
+                        teamName = player.Team.Name
+                        teamColor = player.Team.TeamColor.Color
+                    end
+                end)
+
+                label.Text = player.Name .. " [" .. teamName .. "]"
+                label.TextColor3 = teamColor
+
+                task.wait(0.3)
+            end
+        end)
+    end
+
+    if player.Character then
+        setupCharacter(player.Character)
+    end
+
+    player.CharacterAdded:Connect(function(char)
+        task.wait(0.1)
+        removeESP(player)
+        setupCharacter(char)
+    end)
+
+    player.CharacterRemoving:Connect(function()
+        removeESP(player)
+    end)
+end
+
+for _, player in ipairs(Players:GetPlayers()) do
+    createESP(player)
+end
+Players.PlayerAdded:Connect(createESP)
+Players.PlayerRemoving:Connect(removeESP)
+
+--// REQUIRED
+library:Init()
