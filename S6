@@ -1,0 +1,102 @@
+--// Load Tora Library
+local library = loadstring(game:HttpGet("https://raw.githubusercontent.com/liebertsx/Tora-Library/main/src/librarynew",true))()
+
+--// Create Window
+local tab = library:CreateWindow("xerhub")
+
+--// Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+
+--// Variables
+local autoTP = false
+local deleteKillParts = false
+local tpConnection = nil
+local descendantAddedConnection = nil
+
+--// Helper: Get the Button
+local function getButton()
+    local world2 = workspace:FindFirstChild("World2")
+    if not world2 then return nil end
+    
+    local stage7 = world2:FindFirstChild("Stage7")
+    if not stage7 then return nil end
+    
+    local normalWin = stage7:FindFirstChild("NormalWin")
+    if not normalWin then return nil end
+    
+    return normalWin:FindFirstChild("Button")
+end
+
+--// Helper: Teleport to Button
+local function teleportToButton()
+    local char = LocalPlayer.Character
+    if not char then return end
+    
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    
+    local button = getButton()
+    if not button then return end
+    
+    hrp.CFrame = button.CFrame
+end
+
+--// Helper: Delete a single KillPart
+local function deleteIfKillPart(obj)
+    if obj.Name == "KillPart" or obj.Name == "KillParts" then
+        pcall(function()
+            obj:Destroy()
+        end)
+    end
+end
+
+--// Auto TP Toggle (directly on window)
+tab:AddToggle({
+    text = "Auto TP to Button",
+    flag = "auto_tp",
+    callback = function(v)
+        autoTP = v
+        
+        if autoTP then
+            tpConnection = RunService.Heartbeat:Connect(function()
+                teleportToButton()
+            end)
+        else
+            if tpConnection then
+                tpConnection:Disconnect()
+                tpConnection = nil
+            end
+        end
+    end
+})
+
+--// Delete KillParts Toggle (lag-free, event-based)
+tab:AddToggle({
+    text = "Delete KillParts",
+    flag = "delete_killparts",
+    callback = function(v)
+        deleteKillParts = v
+        
+        if deleteKillParts then
+            -- One-time scan for existing ones
+            for _, obj in ipairs(workspace:GetDescendants()) do
+                deleteIfKillPart(obj)
+            end
+            
+            -- Event-based: only fires when something NEW spawns
+            descendantAddedConnection = workspace.DescendantAdded:Connect(function(obj)
+                deleteIfKillPart(obj)
+            end)
+        else
+            if descendantAddedConnection then
+                descendantAddedConnection:Disconnect()
+                descendantAddedConnection = nil
+            end
+        end
+    end
+})
+
+--// Init (REQUIRED)
+library:Init()
