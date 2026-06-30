@@ -1,0 +1,175 @@
+local library = loadstring(game:HttpGet("https://raw.githubusercontent.com/liebertsx/Tora-Library/main/src/librarynew",true))()
+
+local window = library:CreateWindow("Xerhub")
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local remotes = game:GetService("ReplicatedStorage"):WaitForChild("NukeRemotes")
+
+local function GetCFrame(obj)
+    if not obj then return nil end
+    if obj:IsA("Model") then
+        if obj.PrimaryPart then return obj.PrimaryPart.CFrame end
+        return obj:GetPivot()
+    elseif obj:IsA("BasePart") then
+        return obj.CFrame
+    end
+    return nil
+end
+
+local function TpTo(cframe)
+    local char = LocalPlayer.Character
+    if char and char:FindFirstChild("HumanoidRootPart") and cframe then
+        char.HumanoidRootPart.CFrame = cframe + Vector3.new(0, 5, 0)
+    end
+end
+
+window:AddToggle({
+    text = "Auto Nuke Farm",
+    flag = "nuke_farm",
+    callback = function(enabled)
+        if enabled then
+            task.spawn(function()
+                while library.flags["nuke_farm"] do
+                    local basesFolder = workspace:FindFirstChild("Bases")
+                    if not basesFolder then task.wait(2) continue end
+
+                    local myBase = nil
+                    for _, base in ipairs(basesFolder:GetChildren()) do
+                        local floor = base:FindFirstChild("Floor")
+                        if not floor then continue end
+                        local billboard = floor:FindFirstChild("BillboardGui")
+                        if not billboard then continue end
+                        local textLabel = billboard:FindFirstChild("TextLabel")
+                        if textLabel and textLabel.Text == LocalPlayer.Name then
+                            myBase = base
+                            break
+                        end
+                    end
+
+                    if not myBase then task.wait(2) continue end
+
+                    local nukesFolder = myBase:FindFirstChild("Nukes")
+                    if not nukesFolder then task.wait(2) continue end
+
+                    local allNukes = {}
+                    for _, nuke in ipairs(nukesFolder:GetChildren()) do
+                        local overhead = nuke:FindFirstChild("OverheadNuke")
+                        if not overhead then continue end
+                        local nukeLabel = overhead:FindFirstChild("TextLabel")
+                        if not nukeLabel then continue end
+                        local level = tonumber(nukeLabel.Text)
+                        if not level then continue end
+                        local cf = GetCFrame(nuke)
+                        if not cf then continue end
+                        table.insert(allNukes, {Object = nuke, Level = level, Name = nuke.Name, CFrame = cf})
+                    end
+
+                    if #allNukes == 0 then task.wait(2) continue end
+
+                    local byLevel = {}
+                    for _, n in ipairs(allNukes) do
+                        if not byLevel[n.Level] then byLevel[n.Level] = {} end
+                        table.insert(byLevel[n.Level], n)
+                    end
+
+                    local levels = {}
+                    for lvl, _ in pairs(byLevel) do table.insert(levels, lvl) end
+                    table.sort(levels)
+
+                    local targetGroup = nil
+                    for _, lvl in ipairs(levels) do
+                        if #byLevel[lvl] >= 2 then
+                            targetGroup = byLevel[lvl]
+                            break
+                        end
+                    end
+
+                    if not targetGroup then task.wait(2) continue end
+
+                    local idx = 1
+                    while library.flags["nuke_farm"] do
+                        local current = targetGroup[idx]
+                        if current.Object and current.Object.Parent then
+                            local overhead = current.Object:FindFirstChild("OverheadNuke")
+                            local label = overhead and overhead:FindFirstChild("TextLabel")
+                            local liveLevel = label and tonumber(label.Text)
+                            if liveLevel == current.Level then
+                                TpTo(current.CFrame)
+                            else
+                                break
+                            end
+                        else
+                            break
+                        end
+                        idx = idx + 1
+                        if idx > #targetGroup then idx = 1 end
+                        task.wait(0.5)
+                    end
+                end
+            end)
+        end
+    end
+})
+
+window:AddToggle({
+    text = "Auto Upgrade Lock Base",
+    flag = "auto_upgrade_lock",
+    callback = function(v)
+        if v then
+            task.spawn(function()
+                while library.flags["auto_upgrade_lock"] do
+                    remotes:WaitForChild("PurchaseUpgrade"):FireServer("LOCKBASE")
+                    task.wait(0.5)
+                end
+            end)
+        end
+    end
+})
+
+window:AddToggle({
+    text = "Auto Upgrade Tier",
+    flag = "auto_upgrade_tier",
+    callback = function(v)
+        if v then
+            task.spawn(function()
+                while library.flags["auto_upgrade_tier"] do
+                    remotes:WaitForChild("PurchaseUpgrade"):FireServer("TIER")
+                    task.wait(0.5)
+                end
+            end)
+        end
+    end
+})
+
+window:AddToggle({
+    text = "Auto Upgrade Max",
+    flag = "auto_upgrade_max",
+    callback = function(v)
+        if v then
+            task.spawn(function()
+                while library.flags["auto_upgrade_max"] do
+                    remotes:WaitForChild("PurchaseUpgrade"):FireServer("MAX")
+                    task.wait(0.5)
+                end
+            end)
+        end
+    end
+})
+
+window:AddToggle({
+    text = "Auto Lock Base",
+    flag = "auto_lock",
+    callback = function(v)
+        if v then
+            task.spawn(function()
+                while library.flags["auto_lock"] do
+                    remotes:WaitForChild("RequestLockBase"):FireServer()
+                    task.wait(1)
+                end
+            end)
+        end
+    end
+})
+
+library:Init()
