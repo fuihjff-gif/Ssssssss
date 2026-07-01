@@ -1,0 +1,93 @@
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+local library = loadstring(game:HttpGet("https://raw.githubusercontent.com/liebertsx/Tora-Library/main/src/librarynew", true))()
+
+-- Main Window
+local tab = library:CreateWindow("Xerhub")
+
+-- CFrames
+local World1CF = CFrame.new(-3485, 53.3573456, -20.5, 1, 0, 0, 0, 1, 0, 0, 0, 1)
+local World2CF = CFrame.new(-2874.19995, 22.2859001, -1019.79999, 1, 0, 0, 0, 1, 0, 0, 0, 1)
+local World3CF = CFrame.new(-2163.90015, 62.7859077, -15.7000008, -1.1920929e-07, 0, 1.00000012, 0, 1, 0, -1.00000012, 0, -1.1920929e-07)
+
+-- Helper
+local function GetHRP()
+    local char = LocalPlayer.Character
+    if char then
+        return char:FindFirstChild("HumanoidRootPart")
+    end
+    return nil
+end
+
+-- Thread storage
+local Threads = {}
+
+-- Helper to start/stop loops
+local function ToggleLoop(flag, cframe)
+    if library.flags[flag] then
+        Threads[flag] = task.spawn(function()
+            while task.wait(0.1) do
+                if not library.flags[flag] then break end
+                local hrp = GetHRP()
+                if hrp then
+                    hrp.CFrame = cframe
+                end
+            end
+        end)
+    else
+        if Threads[flag] then
+            Threads[flag] = nil
+        end
+    end
+end
+
+-- Toggle 1: Auto Farm World 1
+tab:AddToggle({
+    text = "Auto Farm World 1",
+    flag = "farm_world1",
+    callback = function(v)
+        ToggleLoop("farm_world1", World1CF)
+    end
+})
+
+-- Toggle 2: Auto Farm World 2
+tab:AddToggle({
+    text = "Auto Farm World 2",
+    flag = "farm_world2",
+    callback = function(v)
+        ToggleLoop("farm_world2", World2CF)
+    end
+})
+
+-- Toggle 3: Auto Farm World 3
+tab:AddToggle({
+    text = "Auto Farm World 3",
+    flag = "farm_world3",
+    callback = function(v)
+        ToggleLoop("farm_world3", World3CF)
+    end
+})
+
+-- Toggle 4: Auto Click
+tab:AddToggle({
+    text = "Auto Click",
+    flag = "auto_click",
+    callback = function(v)
+        if v then
+            Threads["auto_click"] = task.spawn(function()
+                while task.wait(0.1) do
+                    if not library.flags["auto_click"] then break end
+                    local args = {{}}
+                    game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("AuraRunnerTrainClick"):FireServer(unpack(args))
+                end
+            end)
+        else
+            if Threads["auto_click"] then
+                Threads["auto_click"] = nil
+            end
+        end
+    end
+})
+
+library:Init()
