@@ -15,15 +15,18 @@ local deleteKillParts = false
 local tpConnection = nil
 local descendantAddedConnection = nil
 
---// Helper: Get the Button
+--// Helper: Get the Button (UPDATED PATH)
 local function getButton()
     local world2 = workspace:FindFirstChild("World2")
     if not world2 then return nil end
     
-    local stage7 = world2:FindFirstChild("Stage7")
-    if not stage7 then return nil end
+    local stage9 = world2:FindFirstChild("Stage9")
+    if not stage9 then return nil end
     
-    local normalWin = stage7:FindFirstChild("NormalWin")
+    local finalDestination = stage9:FindFirstChild("FinalDestination")
+    if not finalDestination then return nil end
+    
+    local normalWin = finalDestination:FindFirstChild("NormalWin")
     if not normalWin then return nil end
     
     return normalWin:FindFirstChild("Button")
