@@ -1,0 +1,227 @@
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+
+local library = loadstring(game:HttpGet("https://raw.githubusercontent.com/liebertsx/Tora-Library/main/src/librarynew", true))()
+
+local tab = library:CreateWindow("Xerhub")
+
+-- Settings
+local MaxDistance = 500
+local HitboxSize = Vector3.new(25, 25, 25)
+local ESPEnabled = false
+local HitboxEnabled = false
+
+-- Storage
+local ESPObjects = {}
+local OriginalHitboxSizes = {}
+
+-- ===== TEAM CHECK =====
+local function IsEnemy(player)
+    if player == LocalPlayer then return false end
+    if LocalPlayer.Team and player.Team and LocalPlayer.Team == player.Team then
+        return false
+    end
+    return true
+end
+
+-- ===== GET HRP =====
+local function GetHRP(char)
+    return char:FindFirstChild("HumanoidRootPart") 
+        or char:FindFirstChild("Torso") 
+        or char:FindFirstChild("UpperTorso")
+end
+
+-- ===== ESP (Chams on BODY) =====
+local function ApplyChams(model)
+    if not model or not model.Parent then return end
+    if model:FindFirstChild("XerhubESP") then return end
+    
+    local hl = Instance.new("Highlight")
+    hl.Name = "XerhubESP"
+    hl.FillColor = Color3.fromRGB(255, 0, 0)
+    hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+    hl.FillTransparency = 0.5
+    hl.OutlineTransparency = 0
+    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.Adornee = model
+    hl.Parent = model
+    
+    ESPObjects[model] = true
+end
+
+local function RemoveChams(model)
+    if not model then return end
+    local hl = model:FindFirstChild("XerhubESP")
+    if hl then
+        hl:Destroy()
+    end
+    ESPObjects[model] = nil
+end
+
+local function ClearAllChams()
+    for model, _ in pairs(ESPObjects) do
+        RemoveChams(model)
+    end
+    ESPObjects = {}
+end
+
+-- ===== HITBOX =====
+local function ExpandHitbox(hrp)
+    if not hrp or not hrp.Parent then return end
+    if OriginalHitboxSizes[hrp] then return end
+    
+    OriginalHitboxSizes[hrp] = hrp.Size
+    hrp.Size = HitboxSize
+    hrp.Transparency = 0.6
+    hrp.CanCollide = false
+end
+
+local function RestoreHitbox(hrp)
+    local original = OriginalHitboxSizes[hrp]
+    if original and hrp and hrp.Parent then
+        hrp.Size = original
+        hrp.Transparency = 1
+        OriginalHitboxSizes[hrp] = nil
+    end
+end
+
+local function RestoreAllHitboxes()
+    for hrp, _ in pairs(OriginalHitboxSizes) do
+        RestoreHitbox(hrp)
+    end
+    OriginalHitboxSizes = {}
+end
+
+-- ===== DISTANCE =====
+local function GetDistance(pos)
+    local myChar = LocalPlayer.Character
+    if not myChar then return 99999 end
+    local myHRP = GetHRP(myChar)
+    if not myHRP then return 99999 end
+    return (pos - myHRP.Position).Magnitude
+end
+
+-- ===== SCANNER =====
+local function ScanPlayers()
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            local char = player.Character
+            if char then
+                local hrp = GetHRP(char)
+                local humanoid = char:FindFirstChildOfClass("Humanoid")
+                
+                if hrp and humanoid and humanoid.Health > 0 then
+                    local dist = GetDistance(hrp.Position)
+                    
+                    if dist <= MaxDistance and IsEnemy(player) then
+                        if ESPEnabled then ApplyChams(char) end
+                        if HitboxEnabled then ExpandHitbox(hrp) end
+                    else
+                        RemoveChams(char)
+                        RestoreHitbox(hrp)
+                    end
+                else
+                    RemoveChams(char)
+                    if hrp then RestoreHitbox(hrp) end
+                end
+            end
+        end
+    end
+end
+
+local function ScanNPCs()
+    local npcFolders = {"Enemies", "NPCs", "Mobs", "Ridge", "BadGuys", "Monsters", "Spawns", "Live"}
+    for _, folderName in pairs(npcFolders) do
+        local folder = Workspace:FindFirstChild(folderName)
+        if folder then
+            for _, model in pairs(folder:GetChildren()) do
+                if model:IsA("Model") then
+                    local hrp = GetHRP(model)
+                    local humanoid = model:FindFirstChildOfClass("Humanoid")
+                    
+                    if hrp and humanoid and humanoid.Health > 0 then
+                        local dist = GetDistance(hrp.Position)
+                        if dist <= MaxDistance then
+                            if ESPEnabled then ApplyChams(model) end
+                            if HitboxEnabled then ExpandHitbox(hrp) end
+                        else
+                            RemoveChams(model)
+                            RestoreHitbox(hrp)
+                        end
+                    else
+                        RemoveChams(model)
+                        if hrp then RestoreHitbox(hrp) end
+                    end
+                end
+            end
+        end
+    end
+end
+
+local function UpdateFeatures()
+    for model, _ in pairs(ESPObjects) do
+        if not model or not model.Parent then
+            RemoveChams(model)
+        end
+    end
+    for hrp, _ in pairs(OriginalHitboxSizes) do
+        if not hrp or not hrp.Parent then
+            OriginalHitboxSizes[hrp] = nil
+        end
+    end
+    
+    ScanPlayers()
+    ScanNPCs()
+end
+
+-- ===== TOGGLES =====
+tab:AddToggle({
+    text = "ESP Chams",
+    flag = "esp_chams",
+    callback = function(v)
+        ESPEnabled = v
+        if not v then ClearAllChams() end
+    end
+})
+
+tab:AddToggle({
+    text = "Hitbox Expander",
+    flag = "hitbox_expander",
+    callback = function(v)
+        HitboxEnabled = v
+        if not v then RestoreAllHitboxes() end
+    end
+})
+
+-- ===== SLIDER: Hitbox Size =====
+tab:AddSlider({
+    text = "Hitbox Size",
+    min = 5,
+    max = 50,
+    value = 25,
+    type = "slider",
+    callback = function(v)
+        HitboxSize = Vector3.new(v, v, v)
+    end
+})
+
+-- ===== LOOP =====
+task.spawn(function()
+    while true do
+        if ESPEnabled or HitboxEnabled then
+            UpdateFeatures()
+        end
+        task.wait(0.5)
+    end
+end)
+
+-- Cleanup
+LocalPlayer.CharacterAdded:Connect(function()
+    task.wait(1)
+    if not ESPEnabled then ClearAllChams() end
+    if not HitboxEnabled then RestoreAllHitboxes() end
+end)
+
+library:Init()
