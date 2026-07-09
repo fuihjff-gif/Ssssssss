@@ -1,0 +1,488 @@
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local Workspace = game:GetService("Workspace")
+local CollectionService = game:GetService("CollectionService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+
+local library = loadstring(game:HttpGet("https://raw.githubusercontent.com/liebertsx/Tora-Library/main/src/librarynew", true))()
+local tab = library:CreateWindow("Xerhub")
+
+-- Verdant system
+local Verdant = require(ReplicatedStorage:WaitForChild("Verdant"))
+local VerdantRemotes = require(Verdant.Remotes)
+
+-- Settings
+local AutoScoop = false
+local AutoPour = false
+local AutoTake = false
+local AutoChest = false
+local ESPEnabled = false
+local InfiniteSwim = false
+local Speed = 50
+
+-- Storage
+local ESPObjects = {}
+local ESPLabels = {}
+local CachedChests = {}
+local CachedPhones = {}
+local CachedDrains = {}
+local CacheTick = 0
+
+-- Helpers
+local function GetHRP()
+    local char = LocalPlayer.Character
+    if char then
+        return char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
+    end
+    return nil
+end
+
+local function GetHumanoid()
+    local char = LocalPlayer.Character
+    if char then
+        return char:FindFirstChildOfClass("Humanoid")
+    end
+    return nil
+end
+
+local function GetDistance(pos)
+    local hrp = GetHRP()
+    if not hrp then return math.huge end
+    return (hrp.Position - pos).Magnitude
+end
+
+-- ===== INJECTOR: FIND SWIM CONTROLLER =====
+local SwimController = nil
+
+local function FindSwimController()
+    if getgc then
+        for _, v in pairs(getgc()) do
+            if typeof(v) == "table" then
+                if typeof(v._startDrown) == "function" 
+                   and typeof(v._stopSwim) == "function" 
+                   and typeof(v._swimStep) == "function" then
+                    return v
+                end
+            end
+        end
+    end
+    
+    if getloadedmodules then
+        for _, modScript in pairs(getloadedmodules()) do
+            local success, result = pcall(require, modScript)
+            if success and typeof(result) == "table" then
+                if typeof(result._startDrown) == "function" then
+                    return result
+                end
+                if typeof(result.__index) == "table" 
+                   and typeof(result.__index._startDrown) == "function" then
+                    return result.__index
+                end
+            end
+        end
+    end
+    
+    if package and package.loaded then
+        for _, mod in pairs(package.loaded) do
+            if typeof(mod) == "table" then
+                if typeof(mod._startDrown) == "function" then
+                    return mod
+                end
+                if typeof(mod.__index) == "table" 
+                   and typeof(mod.__index._startDrown) == "function" then
+                    return mod.__index
+                end
+            end
+        end
+    end
+    
+    return nil
+end
+
+-- ===== INJECTOR: APPLY INFINITE SWIM =====
+local function ApplyInfiniteSwim()
+    SwimController = FindSwimController()
+    if not SwimController then
+        return false
+    end
+    
+    local oldStartDrown = SwimController._startDrown
+    SwimController._startDrown = function(self)
+        self._drowning = false
+        self._drownElapsed = 0
+        LocalPlayer:SetAttribute("Drowning", nil)
+        return
+    end
+    
+    local oldDrownStep = SwimController._drownStep
+    SwimController._drownStep = function(self, dt)
+        self._drownElapsed = 0
+        return
+    end
+    
+    local oldSwimStep = SwimController._swimStep
+    SwimController._swimStep = function(self, dt, depth, surfaceVel)
+        self._swimMeter = self._meterMax or 100
+        LocalPlayer:SetAttribute("SwimMeter", 1)
+        
+        local root = self._root
+        local humanoid = self._humanoid
+        if root and humanoid then
+            local moveDir = humanoid.MoveDirection
+            local swimSpeed = self._swimSpeed or 16
+            local vel = Vector3.new(moveDir.X, 0, moveDir.Z) * swimSpeed
+            
+            if vel.Magnitude > 0.05 then
+                local lookDir = Vector3.new(vel.X, 0, vel.Z).Unit
+                local targetCF = CFrame.lookAt(root.Position, root.Position + lookDir)
+                root.CFrame = root.CFrame:Lerp(targetCF, 1 - math.exp(-dt * 10))
+            end
+            
+            local targetY = (depth - 0.5) * 6 + surfaceVel
+            targetY = math.clamp(targetY, -12, 12)
+            
+            local newVel = Vector3.new(
+                self._currentVel.X + (vel.X - self._currentVel.X) * (1 - math.exp(-dt * 8)),
+                targetY,
+                self._currentVel.Z + (vel.Z - self._currentVel.Z) * (1 - math.exp(-dt * 8))
+            )
+            
+            self._currentVel = newVel
+            root.AssemblyLinearVelocity = newVel
+        end
+    end
+    
+    return true
+end
+
+-- ===== COOL ESP WITH NAMES =====
+local function CreateESPName(parent, text, color)
+    if not parent or not parent.Parent then return nil end
+    if parent:FindFirstChild("XerhubName") then return parent:FindFirstChild("XerhubName") end
+    
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = "XerhubName"
+    billboard.AlwaysOnTop = true
+    billboard.Size = UDim2.new(0, 120, 0, 30)
+    billboard.StudsOffset = Vector3.new(0, 4, 0)
+    billboard.MaxDistance = 1000
+    billboard.Parent = parent
+    
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, 0, 1, 0)
+    frame.BackgroundColor3 = Color3.new(0, 0, 0)
+    frame.BackgroundTransparency = 0.5
+    frame.BorderSizePixel = 0
+    frame.Parent = billboard
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = frame
+    
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -4, 1, -4)
+    label.Position = UDim2.new(0, 2, 0, 2)
+    label.BackgroundTransparency = 1
+    label.Text = text
+    label.TextColor3 = color
+    label.TextStrokeTransparency = 0.3
+    label.TextStrokeColor3 = Color3.new(0, 0, 0)
+    label.Font = Enum.Font.GothamBold
+    label.TextSize = 14
+    label.Parent = frame
+    
+    return billboard
+end
+
+local function ApplyESP(model, color, name)
+    if not model or not model.Parent then return end
+    if model:FindFirstChild("XerhubESP") then return end
+    
+    local hl = Instance.new("Highlight")
+    hl.Name = "XerhubESP"
+    hl.FillColor = color
+    hl.OutlineColor = Color3.new(1, 1, 1)
+    hl.FillTransparency = 0.3
+    hl.OutlineTransparency = 0
+    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.Adornee = model
+    hl.Parent = model
+    
+    ESPObjects[model] = true
+    
+    local label = CreateESPName(model, name, color)
+    if label then
+        ESPLabels[model] = label
+    end
+end
+
+local function RemoveESP(model)
+    if not model then return end
+    local hl = model:FindFirstChild("XerhubESP")
+    if hl then hl:Destroy() end
+    local name = model:FindFirstChild("XerhubName")
+    if name then name:Destroy() end
+    ESPObjects[model] = nil
+    ESPLabels[model] = nil
+end
+
+local function ClearAllESP()
+    for model, _ in pairs(ESPObjects) do
+        RemoveESP(model)
+    end
+    ESPObjects = {}
+    ESPLabels = {}
+end
+
+-- ===== CACHE =====
+local function RefreshCache()
+    CacheTick = CacheTick + 1
+    if CacheTick < 4 then return end
+    CacheTick = 0
+    
+    CachedChests = {}
+    local scripted = Workspace:FindFirstChild("Scripted")
+    if scripted then
+        local chestsFolder = scripted:FindFirstChild("Chests")
+        if chestsFolder then
+            for _, chest in pairs(chestsFolder:GetChildren()) do
+                if chest.Name == "Chest" and (chest:IsA("Model") or chest:IsA("BasePart")) then
+                    local chestPart = chest:FindFirstChild("Part")
+                    if not chestPart then
+                        chestPart = chest:FindFirstChildWhichIsA("BasePart")
+                    end
+                    if chestPart then
+                        table.insert(CachedChests, {
+                            Model = chest,
+                            Part = chestPart,
+                            Position = chestPart.Position
+                        })
+                    end
+                end
+            end
+        end
+    end
+    
+    CachedPhones = {}
+    local phoneFolder = Workspace:FindFirstChild("Phone")
+    if phoneFolder then
+        for _, phone in pairs(phoneFolder:GetChildren()) do
+            if phone:IsA("Model") or phone:IsA("BasePart") then
+                table.insert(CachedPhones, phone)
+            end
+        end
+    end
+    
+    CachedDrains = {}
+    if scripted then
+        local checkpoints = scripted:FindFirstChild("CheckpointParts")
+        if checkpoints then
+            for _, cp in pairs(checkpoints:GetChildren()) do
+                local drain = cp:FindFirstChild("Drain")
+                if drain then
+                    local s = drain:FindFirstChild("Scripted")
+                    if s then
+                        local proxPos = s:FindFirstChild("ProximityPosition")
+                        if proxPos then
+                            local prompt = proxPos:FindFirstChildOfClass("ProximityPrompt")
+                            if prompt then
+                                local pos = Vector3.new()
+                                if proxPos:IsA("BasePart") then
+                                    pos = proxPos.Position
+                                elseif proxPos:IsA("Attachment") then
+                                    pos = proxPos.WorldPosition
+                                end
+                                table.insert(CachedDrains, {
+                                    Prompt = prompt,
+                                    Position = pos
+                                })
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
+-- ===== WATER =====
+local function GetNearestWater()
+    local hrp = GetHRP()
+    if not hrp then return nil end
+    local nearest, minDist = nil, math.huge
+    for _, part in pairs(CollectionService:GetTagged("Water")) do
+        if part:IsA("BasePart") then
+            local dist = (part.Position - hrp.Position).Magnitude
+            if dist < minDist then
+                minDist = dist
+                nearest = part
+            end
+        end
+    end
+    return nearest
+end
+
+-- ===== UPDATE ESP =====
+local function UpdateESP()
+    for model, _ in pairs(ESPObjects) do
+        if not model or not model.Parent then
+            RemoveESP(model)
+        end
+    end
+    
+    if not ESPEnabled then return end
+    
+    for _, chestData in pairs(CachedChests) do
+        local chest = chestData.Model
+        if chest and chest.Parent then
+            ApplyESP(chest, Color3.fromRGB(255, 215, 0), "CHEST")
+        end
+    end
+    
+    for _, phone in pairs(CachedPhones) do
+        if phone and phone.Parent then
+            ApplyESP(phone, Color3.fromRGB(186, 85, 211), "PHONE")
+        end
+    end
+end
+
+-- ===== MOVEMENT =====
+RunService.Heartbeat:Connect(function()
+    local humanoid = GetHumanoid()
+    if humanoid then
+        humanoid.WalkSpeed = Speed
+    end
+end)
+
+-- ===== TP HELPER =====
+local function TPTo(pos)
+    local hrp = GetHRP()
+    if not hrp then return end
+    hrp.CFrame = CFrame.new(pos.X, pos.Y + 5, pos.Z)
+    task.wait(0.1)
+    hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+end
+
+-- ===== MAIN LOOP (FASTER SCOOP + AUTO POUR WHEN FULL) =====
+task.spawn(function()
+    while true do
+        RefreshCache()
+        
+        -- AUTO SCOOP: Faster (0.05s delay)
+        if AutoScoop then
+            local water = GetNearestWater()
+            if water then
+                local hrp = GetHRP()
+                if hrp then
+                    hrp.CFrame = CFrame.new(hrp.Position, Vector3.new(water.Position.X, hrp.Position.Y, water.Position.Z))
+                end
+                pcall(function()
+                    VerdantRemotes:Fire("Bucket.Used")
+                end)
+            end
+            task.wait(0.05) -- Fast scoop
+        end
+        
+        -- AUTO POUR: Only when bucket is FULL (100%)
+        if AutoPour then
+            local fill = LocalPlayer:GetAttribute("BucketFill") or 0
+            if fill >= 0.99 then -- Full bucket
+                for _, drain in pairs(CachedDrains) do
+                    TPTo(drain.Position)
+                    task.wait(0.3)
+                    pcall(function()
+                        VerdantRemotes:Fire("Bucket.Poured", drain.Prompt)
+                    end)
+                    task.wait(0.3)
+                end
+            end
+        end
+        
+        if AutoTake then
+            for _, drain in pairs(CachedDrains) do
+                TPTo(drain.Position)
+                task.wait(0.3)
+                pcall(function()
+                    VerdantRemotes:Fire("Tokens.Take", drain.Prompt)
+                end)
+                task.wait(0.3)
+            end
+        end
+        
+        if AutoChest then
+            for _, chestData in pairs(CachedChests) do
+                local part = chestData.Part
+                if part and part.Parent then
+                    TPTo(part.Position)
+                    task.wait(0.3)
+                    pcall(function()
+                        VerdantRemotes:Fire("Chest.Open", part)
+                    end)
+                    task.wait(0.3)
+                end
+            end
+        end
+        
+        if ESPEnabled then
+            UpdateESP()
+        end
+        
+        if not AutoScoop then
+            task.wait(0.5)
+        end
+    end
+end)
+
+-- ===== UI =====
+tab:AddToggle({ text = "Auto Scoop", flag = "auto_scoop", callback = function(v) AutoScoop = v end })
+tab:AddToggle({ text = "Auto Pour", flag = "auto_pour", callback = function(v) AutoPour = v end })
+tab:AddToggle({ text = "Auto Take", flag = "auto_take", callback = function(v) AutoTake = v end })
+tab:AddToggle({ text = "Auto Chest", flag = "auto_chest", callback = function(v) AutoChest = v end })
+
+tab:AddToggle({
+    text = "Infinite Swim",
+    flag = "infinite_swim",
+    callback = function(v)
+        InfiniteSwim = v
+        if v then
+            local success = ApplyInfiniteSwim()
+            if not success then
+                task.spawn(function()
+                    while InfiniteSwim do
+                        LocalPlayer:SetAttribute("SwimMeter", 1)
+                        LocalPlayer:SetAttribute("Drowning", nil)
+                        local char = LocalPlayer.Character
+                        if char then
+                            local humanoid = char:FindFirstChildOfClass("Humanoid")
+                            if humanoid then
+                                local animator = humanoid:FindFirstChildOfClass("Animator")
+                                if animator then
+                                    for _, track in pairs(animator:GetPlayingAnimationTracks()) do
+                                        if track.Name:lower():find("drown") then
+                                            track:Stop()
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                        task.wait(0.05)
+                    end
+                end)
+            end
+        end
+    end
+})
+
+tab:AddToggle({
+    text = "ESP",
+    flag = "esp",
+    callback = function(v)
+        ESPEnabled = v
+        if not v then ClearAllESP() end
+    end
+})
+
+tab:AddSlider({ text = "Speed", min = 16, max = 200, value = 50, type = "slider", callback = function(v) Speed = v end })
+
+library:Init()
